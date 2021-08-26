@@ -1,0 +1,236 @@
+Option Explicit
+
+Global ticker As String
+Global openPrice As String
+Global closePrice As String
+Global stockVolume As Double  'Tried a Long, overflow error at times if not a Double
+Global cntTicker As Long  'tracks a row number for the ticker value to display on (summary each row is one ticker)
+
+
+Public Sub AddChangesOverYear()
+'Main sub to run
+'Each tab represents one year for particular stocks, with their open/close prices and volumes
+'Loop through each tab and rows, grab the start/end of year values for each ticker per year, track volume, display how stocks faired over each year
+'Display greatest increase/decrease of the stock and greatest volume with the ticker name per year.
+
+Dim LastRowColA As Long
+Dim r As Long
+Dim curTicker As String
+Dim nxtTicker As String
+Dim ws As Worksheet
+Dim starting_ws As Worksheet
+Dim strActiveSheetName As String
+
+'Initalize values
+ticker = ""
+openPrice = 0
+closePrice = 0
+stockVolume = 0
+cntTicker = 0
+curTicker = ""
+nxtTicker = ""
+
+'remember which worksheet is active in the beginning
+Set starting_ws = ActiveSheet
+
+'loop through each active worksheet
+For Each ws In ThisWorkbook.Worksheets
+    ws.Activate
+    strActiveSheetName = ActiveSheet.name
+    'assign the sheet you want to pass
+    Set ws = Sheets(strActiveSheetName)
+    'get the number of rows in column A
+    LastRowColA = ws.Range("A" & Rows.Count).End(xlUp).Row
+    'reset your row count for ticker placement for next sheet
+    cntTicker = 0
+    'display the titles
+    Call InsertHeadings(ws)
+    
+    'look at each row
+    For r = 2 To LastRowColA
+        'get current ticker value
+        curTicker = ws.Cells(r, 1).Value
+        'peek to see next ticker value
+        nxtTicker = ws.Cells(r + 1, 1).Value
+    
+
+        If curTicker <> nxtTicker Then
+            'get the final closing price for the current ticker
+            Call SetCloseTickerValues(r, ws)
+            'reset calculations to start with new ticker
+            ticker = ""
+            stockVolume = 0
+            openPrice = 0
+            closePrice = 0
+
+        
+        ElseIf ticker = "" Then
+            'get the initial values for the ticker
+            Call SetOpenTickerValues(r, ws)
+        Else
+            'calculate volume
+            stockVolume = ws.Cells(r, 7).Value + stockVolume
+            'check for an open price of 0 (percent change does not include divide by zero, takes next open price)
+            If openPrice = 0 Then
+                openPrice = ws.Cells(r, 3).Value
+            End If
+        
+    End If
+    
+    Next r
+    'make any column formatting changes to worksheet
+    Call GreatestChangesDisplay(LastRowColA, ws)
+    Call ColumnFormatChanges(ws)
+    
+
+Next ws
+
+'activate the worksheet that was originally active
+starting_ws.Activate
+'message user that action is complete
+MsgBox "Completed", vbOKOnly, "Yearly Calculations"
+
+End Sub
+
+Public Function SetOpenTickerValues(curRow As Long, ws As Worksheet)
+    'set opening values
+    With ws
+        ticker = Cells(curRow, 1).Value
+        openPrice = Cells(curRow, 3).Value
+        stockVolume = Cells(curRow, 7).Value
+        cntTicker = cntTicker + 1
+    End With
+End Function
+
+Public Function SetCloseTickerValues(curRow As Long, ws As Worksheet)
+    'set yearly closing price and calculate year end
+    Dim yearChange  As Double
+    Dim yearPercentChange As Variant    'can have nulls when dividing by zero
+    
+    yearChange = 0
+    closePrice = ws.Cells(curRow, 6).Value
+    stockVolume = ws.Cells(curRow, 7).Value + stockVolume
+    yearChange = closePrice - openPrice
+    'calculate yearPercentChange , can not divide by zero
+    If openPrice = closePrice Then
+        yearPercentChange = 0
+    ElseIf openPrice = 0 Then
+        'Previous code takes next open price, so not zero:: still put this in to handle any anomaly
+        'Can not divide by zero
+        'If change to really small number than divide by this number would be really large and skew result
+        'Can say +-  %100 percent change, but not accurate
+        'Can say, statistically speaking can not calculate, saying no real % change when start at 0
+        'Set Null here for any anomaly
+        'To make a Null, need to Define as a VARIANT
+        yearPercentChange = Null
+    Else
+        yearPercentChange = yearChange / openPrice
+    End If
+    
+    
+    'Display year value changes to user
+    Call DisplayChanges(yearChange, yearPercentChange, stockVolume, ws)
+    
+    
+End Function
+
+Public Function DisplayChanges(yearChange As Double, yearPercentChange As Variant, yearVolume As Double, ws As Worksheet)
+     'displays yearly changes on the active worksheet
+     With ws
+        'assign values
+        Cells(cntTicker + 1, 9) = ticker
+        Cells(cntTicker + 1, 10) = yearChange
+        Cells(cntTicker + 1, 11) = yearPercentChange
+        Cells(cntTicker + 1, 12) = yearVolume
+        
+        'colour the year according to a loss or gain/nogain
+        If yearChange < 0 Then
+            Cells(cntTicker + 1, 10).Interior.ColorIndex = 3
+        Else
+            Cells(cntTicker + 1, 10).Interior.ColorIndex = 4
+        End If
+    End With
+End Function
+   
+Public Function InsertHeadings(ws As Worksheet)
+    'function inserts headings for each worksheet in the same columns.
+    
+    'Add column headings to track the following:
+    With ws
+        Range("I1") = "Ticker"
+        Range("J1") = "Yearly Change"
+        Range("K1") = "Percent Change"
+        Range("L1") = "Total Stock Volume"
+    
+        'Track Greatest % increase/decrease and total volume for the year
+        Range("P1") = "Ticker"
+        Range("Q1") = "Value"
+    
+        'Row headings in the column
+        Range("O2") = "Greatest % Increase"
+        Range("O3") = "Greatest % Decrease"
+        Range("O4") = "Greatest Total Volume"
+    
+    End With
+End Function
+
+Public Function ColumnFormatChanges(ws As Worksheet)
+    'set any column formatting for the worksheet
+    With ws
+        'column K as percent
+        Columns("K").NumberFormat = "0.00%"
+        'Cell Q2 and Q3 as percent
+        Range("Q2:Q3").NumberFormat = "0.00%"
+        'yearly change as a dollar value
+        Columns("J").NumberFormat = "$#,##0.00"
+        
+    End With
+    
+End Function
+
+Public Function GreatestChangesDisplay(LastRowColA As Long, ws As Worksheet)
+    'use min and max of column to find some of the greatest changes and display with the ticker name
+    
+    Dim maxP As Double
+    Dim minP As Double
+    Dim maxV As Double
+    Dim rPosA As Long
+    Dim rPosB As Long
+    Dim rPosC As Long
+    Dim r1 As String
+    Dim r2 As String
+    Dim LastRowColKL As String
+  
+    With ws
+        'Find greatest % increase/decrease, greatest volume
+        maxP = Application.WorksheetFunction.Max(Columns("K"))
+        minP = Application.WorksheetFunction.Min(Columns("K"))
+        maxV = Application.WorksheetFunction.Max(Columns("L"))
+   
+        'Display values in cells
+        Range("Q2").Value = maxP
+        Range("Q3").Value = minP
+        Range("Q4").Value = maxV
+    
+        'Set ranges for row to find max min in, need last row of K & L , which are the same # of rows
+        LastRowColKL = Range("K" & Rows.Count).End(xlUp).Row
+        r1 = "K2:K" & LastRowColKL
+        r2 = "L2:L" & LastRowColKL
+    
+        'Get row number where match is, have column in, and returns row number where found max/min value
+        rPosA = Application.WorksheetFunction.Match(maxP, Range(r1), 0)
+        rPosB = Application.WorksheetFunction.Match(minP, Range(r1), 0)
+        rPosC = Application.WorksheetFunction.Match(maxV, Range(r2), 0)
+    
+        'Display the values of corresponding ticker name from the row found max/min in
+        Range("P2").Value = Cells(rPosA, 9).Value
+        Range("P3").Value = Cells(rPosB, 9).Value
+        Range("P4").Value = Cells(rPosC, 9).Value
+    
+     End With
+    'TODO:: note may be more than one max and min value
+    
+End Function
+
+
+
